@@ -1,0 +1,100 @@
+# Sample application: nginx serving a static page.
+#
+# Uses nginxinc/nginx-unprivileged rather than the stock nginx image. VKS
+# clusters commonly enforce the PodSecurity "restricted" profile, which rejects
+# the stock image outright because it runs as root and binds port 80. This image
+# runs as uid 101 and listens on 8080, and satisfies "restricted" as written.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adpg-nginx-content
+  namespace: adpg
+data:
+  index.html: |
+    <!doctype html>
+    <html lang="en">
+      <head><meta charset="utf-8"><title>ADPG</title></head>
+      <body style="font-family:system-ui,sans-serif;margin:4rem auto;max-width:34rem">
+        <h1>ADPG sample app</h1>
+        <p>Served by nginx, exposed at L7 by NSX Advanced Load Balancer via AKO.</p>
+        <p>If you are reading this over TLS, the Ingress and HostRule are working.</p>
+      </body>
+    </html>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adpg-nginx
+  namespace: adpg
+  labels:
+    app: adpg-nginx
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: adpg-nginx
+  template:
+    metadata:
+      labels:
+        app: adpg-nginx
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: nginx
+        image: nginxinc/nginx-unprivileged:1.27-alpine
+        ports:
+        - name: http
+          containerPort: 8080
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        resources:
+          requests: {cpu: 50m, memory: 64Mi}
+          limits:   {cpu: 200m, memory: 128Mi}
+        readinessProbe:
+          httpGet: {path: /, port: http}
+          initialDelaySeconds: 3
+        livenessProbe:
+          httpGet: {path: /, port: http}
+          initialDelaySeconds: 10
+        volumeMounts:
+        - {name: content, mountPath: /usr/share/nginx/html}
+        # readOnlyRootFilesystem, so every path nginx writes to needs a volume.
+        - {name: cache,   mountPath: /var/cache/nginx}
+        - {name: run,     mountPath: /tmp}
+      volumes:
+      - name: content
+        configMap:
+          name: adpg-nginx-content
+      - name: cache
+        emptyDir: {}
+      - name: run
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adpg-nginx
+  namespace: adpg
+  labels:
+    app: adpg-nginx
+spec:
+  # MUST be NodePort when AKO runs with L7Settings.serviceType: NodePort, which
+  # is the common default. In that mode AKO builds the Avi pool from node IPs
+  # plus this Service's nodePort; a ClusterIP Service yields an EMPTY POOL and
+  # the virtual service answers with an empty reply. Use ClusterIP only if AKO
+  # is deployed in ClusterIP mode and the Service Engines can route to pod IPs.
+  type: NodePort
+  selector:
+    app: adpg-nginx
+  ports:
+  - name: http
+    port: 80
+    targetPort: http

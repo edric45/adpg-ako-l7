@@ -1,0 +1,48 @@
+# HostRule: per-FQDN overrides applied to the Avi virtual service that AKO
+# creates for this hostname.
+#
+# ---------------------------------------------------------------------------
+# CERTIFICATE: choose ONE of the two forms below.
+# ---------------------------------------------------------------------------
+#
+# type: secret  (used here, recommended)
+#   Names a Kubernetes TLS secret in this namespace. AKO uploads the
+#   certificate to the Avi controller for you. The certificate is versioned
+#   with your manifests and there is no manual step on the controller.
+#
+# type: ref     (alternative)
+#   Names a certificate object that must ALREADY exist on the Avi controller
+#   under exactly this name, created by hand under
+#   Templates > Security > SSL/TLS Certificates. Use this when the certificate
+#   is managed centrally by a platform team rather than by the application.
+#   If the named object does not exist, the HostRule is REJECTED.
+#
+#       tls:
+#         sslKeyCertificate:
+#           type: ref
+#           name: adpg-test
+#         termination: edge
+#
+#   Caution: with type "ref" the certificate served is whatever is in that
+#   controller object. Verify its CN and SAN match the fqdn below -- a mismatch
+#   there is not visible from Kubernetes and every browser will reject the site
+#   even though the HostRule reports Accepted.
+# ---------------------------------------------------------------------------
+apiVersion: ako.vmware.com/v1beta1
+kind: HostRule
+metadata:
+  name: adpg-test
+  namespace: adpg
+spec:
+  virtualhost:
+    fqdn: test.adpg.local
+    fqdnType: Exact
+    enableVirtualHost: true
+    tls:
+      sslKeyCertificate:
+        type: secret
+        name: adpg-test
+      termination: edge
+    # Built-in Avi profile. AKO adds the :80 -> :443 redirect itself once the
+    # host is secure.
+    applicationProfile: System-Secure-HTTP

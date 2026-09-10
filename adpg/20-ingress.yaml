@@ -1,0 +1,31 @@
+# L7 Ingress, handled by AKO and realised as a virtual service on NSX ALB.
+#
+# The tls block below points at the Kubernetes secret created in step 2 of the
+# README. AKO uploads that certificate to the Avi controller itself, so no
+# manual import is required.
+#
+# If the HostRule in 30-hostrule.yaml specifies an sslKeyCertificate, that
+# takes precedence over this block. Keeping both is deliberate: TLS still
+# terminates correctly if the HostRule is rejected for any reason.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: adpg-nginx
+  namespace: adpg
+spec:
+  ingressClassName: avi-lb
+  tls:
+  - hosts:
+    - test.adpg.local
+    secretName: adpg-test
+  rules:
+  - host: test.adpg.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: adpg-nginx
+            port:
+              number: 80
