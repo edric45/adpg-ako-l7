@@ -25,16 +25,6 @@ You also need a TLS certificate and key for `test.adpg.local`, in PEM, with the
 key unencrypted. Substitute your own hostname throughout if you are not using
 `test.adpg.local`; it appears in `20-ingress.yaml` and `30-hostrule.yaml`.
 
-### Know which mode AKO is running in
-
-```sh
-kubectl -n avi-system get cm avi-k8s-config -o jsonpath='{.data.serviceType}'
-```
-
-If this says `NodePort`, the Service in `10-app.yaml` must be `type: NodePort`,
-which is how it ships. See the note in that file -- a ClusterIP Service in
-NodePort mode produces an empty Avi pool and a virtual service that accepts
-connections and returns nothing.
 
 ## Deploy
 
