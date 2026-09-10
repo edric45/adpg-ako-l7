@@ -1,17 +1,20 @@
 # L7 Ingress, handled by AKO and realised as a virtual service on NSX ALB.
 #
-# The tls block below points at the Kubernetes secret created in step 2 of the
-# README. AKO uploads that certificate to the Avi controller itself, so no
-# manual import is required.
+# There is deliberately NO tls block here. The certificate is supplied by the
+# HostRule in 30-hostrule.yaml, which references an object already imported on
+# the Avi controller. A HostRule carrying an sslKeyCertificate converts an
+# insecure host FQDN into a secure one on its own, so the Ingress does not need
+# to declare TLS and no Kubernetes secret is required.
 #
-# If the HostRule in 30-hostrule.yaml specifies an sslKeyCertificate, that
-# takes precedence over this block. Keeping both is deliberate: TLS still
-# terminates correctly if the HostRule is rejected for any reason.
+# If you switch the HostRule to sslKeyCertificate type "secret", add the block
+# back:
 #
-# USING A CERTIFICATE ALREADY IMPORTED ON THE CONTROLLER INSTEAD?
-# Delete this whole tls block. A HostRule carrying an sslKeyCertificate converts
-# an insecure host to a secure one on its own, so the Ingress needs no tls
-# section and no Kubernetes secret is required at all. See 30-hostrule.yaml.
+#   tls:
+#   - hosts:
+#     - test.adpg.local
+#     secretName: adpg-test
+#
+# Note that when both are present, the HostRule certificate takes precedence.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -19,10 +22,6 @@ metadata:
   namespace: adpg
 spec:
   ingressClassName: avi-lb
-  tls:
-  - hosts:
-    - test.adpg.local
-    secretName: adpg-test
   rules:
   - host: test.adpg.local
     http:

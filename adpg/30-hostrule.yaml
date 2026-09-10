@@ -2,38 +2,40 @@
 # creates for this hostname.
 #
 # ---------------------------------------------------------------------------
-# CERTIFICATE: choose ONE of the two forms below.
+# CERTIFICATE: this sample uses a certificate already imported on the
+# controller. Choose ONE of the two forms below.
 # ---------------------------------------------------------------------------
 #
-# type: secret  (used here, recommended)
-#   Names a Kubernetes TLS secret in this namespace. AKO uploads the
-#   certificate to the Avi controller for you. The certificate is versioned
-#   with your manifests and there is no manual step on the controller.
-#
-# type: ref     (alternative)
+# type: ref  (used here)
 #   Names a certificate object that must ALREADY exist on the Avi controller
-#   under exactly this name, created by hand under
-#   Templates > Security > SSL/TLS Certificates. Use this when the certificate
-#   is managed centrally by a platform team rather than by the application.
+#   under exactly this name, imported under
+#   Templates > Security > SSL/TLS Certificates. No Kubernetes secret is
+#   needed, and 20-ingress.yaml carries no tls block: a HostRule with an
+#   sslKeyCertificate converts an insecure host FQDN to a secure one by itself.
 #   If the named object does not exist, the HostRule is REJECTED.
+#
+#   Caution: the certificate served is whatever is in that controller object.
+#   Verify its CN and SAN match the fqdn below. A mismatch is NOT visible from
+#   Kubernetes -- the HostRule still reports Accepted while every browser
+#   rejects the site. Nobody in the cluster can see this; someone has to own
+#   checking it on the controller, and again at every renewal.
+#
+# type: secret  (alternative)
+#   Names a Kubernetes TLS secret in this namespace, which AKO uploads to the
+#   controller for you. The certificate is then versioned with your manifests
+#   and there is no manual step on the controller. To use it, swap the block
+#   below for the one here AND restore the tls block in 20-ingress.yaml:
 #
 #       tls:
 #         sslKeyCertificate:
-#           type: ref
+#           type: secret
 #           name: adpg-test
 #         termination: edge
 #
-#   With type "ref" you do NOT need a Kubernetes secret at all, and the Ingress
-#   does not need a tls section: a HostRule carrying an sslKeyCertificate
-#   converts an insecure host to a secure one by itself. To go fully
-#   controller-managed, use the block above and delete the tls block from
-#   20-ingress.yaml. Verified against AKO: with no Ingress tls and no secret,
-#   the HostRule stays Accepted and the virtual service still terminates TLS.
-#
-#   Caution: with type "ref" the certificate served is whatever is in that
-#   controller object. Verify its CN and SAN match the fqdn below -- a mismatch
-#   there is not visible from Kubernetes and every browser will reject the site
-#   even though the HostRule reports Accepted.
+#   Create the secret with:
+#       kubectl -n adpg create secret tls adpg-test \
+#         --cert=/path/to/test.adpg.local.crt \
+#         --key=/path/to/test.adpg.local.key
 # ---------------------------------------------------------------------------
 apiVersion: ako.vmware.com/v1beta1
 kind: HostRule
@@ -47,7 +49,7 @@ spec:
     enableVirtualHost: true
     tls:
       sslKeyCertificate:
-        type: secret
+        type: ref
         name: adpg-test
       termination: edge
     # Built-in Avi profile. AKO adds the :80 -> :443 redirect itself once the

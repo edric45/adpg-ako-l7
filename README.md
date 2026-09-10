@@ -88,25 +88,28 @@ kubectl apply -f adpg/00-namespace.yaml
 
 ### 2. Certificate
 
-The certificate goes in as a standard Kubernetes TLS secret named `adpg-test`.
-Created by command rather than a manifest, so the private key never enters git:
+This sample references a certificate **already imported on the Avi controller**,
+so there is nothing to create in Kubernetes. Import it once, under
+*Templates > Security > SSL/TLS Certificates > Create > Application
+Certificate*, with **Type** set to `Import`:
 
-```sh
-kubectl -n adpg create secret tls adpg-test \
-  --cert=/path/to/test.adpg.local.crt \
-  --key=/path/to/test.adpg.local.key
-```
+- paste the certificate PEM into the certificate field
+- paste the unencrypted private key PEM into the key field
+- name the object exactly `adpg-test` -- this is the name
+  [`adpg/30-hostrule.yaml`](adpg/30-hostrule.yaml) references
 
-Confirm what you loaded actually matches the hostname you are about to serve:
+Then verify, on the controller, that the certificate's **SAN** covers
+`test.adpg.local`. Modern browsers and Go's TLS stack ignore the CN entirely and
+match on SAN only, so a certificate carrying just a correct CN still fails with
+`ERR_CERT_COMMON_NAME_INVALID`.
 
-```sh
-kubectl -n adpg get secret adpg-test -o jsonpath='{.data.tls\.crt}' \
-  | base64 -d | openssl x509 -noout -subject -ext subjectAltName
-```
+> This check matters more than it looks. If the object's name is right but its
+> SAN is wrong, the HostRule still reports `Accepted` and nothing in Kubernetes
+> reports a problem -- the site simply fails in every browser. Kubernetes has no
+> visibility into what the controller is actually serving.
 
-The **SAN** must list `test.adpg.local`. Modern browsers and Go's TLS stack
-ignore the CN entirely and match on SAN only, so a certificate carrying just a
-correct CN still fails with `ERR_CERT_COMMON_NAME_INVALID`.
+Prefer to manage the certificate from Kubernetes instead? See
+[Using a Kubernetes secret instead](#using-a-kubernetes-secret-instead).
 
 ### 3. Application
 
@@ -124,51 +127,58 @@ kubectl apply -f adpg/30-hostrule.yaml
 
 ## How the certificate is wired
 
-The certificate is referenced in two places, and it is worth understanding which
-one actually takes effect.
+As shipped, the certificate lives **only on the Avi controller**. The HostRule
+in [`adpg/30-hostrule.yaml`](adpg/30-hostrule.yaml) names it:
 
-| | Where it points | Who uploads to Avi |
-|---|---|---|
-| `20-ingress.yaml` `spec.tls.secretName` | Kubernetes secret `adpg-test` | AKO |
-| `30-hostrule.yaml` `sslKeyCertificate` | see below | depends on `type` |
+```yaml
+tls:
+  sslKeyCertificate:
+    type: ref          # an object on the controller, not a Kubernetes secret
+    name: adpg-test    # must match the controller object name exactly
+  termination: edge
+```
 
-**The HostRule wins.** When a HostRule specifies an `sslKeyCertificate`, it
-overrides the Ingress `tls` block. The Ingress entry is kept as a fallback so
-TLS still terminates if the HostRule is ever rejected.
+[`adpg/20-ingress.yaml`](adpg/20-ingress.yaml) deliberately has **no `tls`
+block**. It does not need one: a HostRule carrying an `sslKeyCertificate`
+converts an insecure host FQDN into a secure one on its own. Verified end to
+end -- with no Ingress `tls` section and no secret in the namespace, the
+HostRule reported `Accepted`, the Avi child virtual service kept its certificate
+attached, and the VIP terminated TLS correctly.
 
-As shipped, the HostRule uses `type: secret`, pointing at the same `adpg-test`
-Kubernetes secret. AKO uploads it to the controller. Nothing is done by hand and
-the certificate is versioned alongside the manifests.
+The trade-off: the certificate is not described by your manifests. Renewals
+happen on the controller, and a hostname mismatch there is invisible from
+Kubernetes. Someone has to own checking CN and SAN on the controller object, at
+import and at every renewal.
 
-The alternative is `type: ref`, which names a certificate object that must
-already exist on the Avi controller under exactly that name, imported manually.
-Use it when certificates are managed centrally rather than per-application. Full
-commentary and the exact YAML are in [`adpg/30-hostrule.yaml`](adpg/30-hostrule.yaml).
+### Using a Kubernetes secret instead
 
-### Referencing a controller certificate with no Kubernetes secret
+If you would rather the certificate be versioned alongside the manifests, with
+no manual step on the controller, AKO can upload it for you.
 
-If the certificate is already imported on the Avi controller, you can reference
-it and skip the secret entirely -- step 2 of Deploy is then not needed at all.
+1. Create the secret, which keeps the private key out of git:
 
-1. In [`adpg/30-hostrule.yaml`](adpg/30-hostrule.yaml), set the certificate to
-   `type: ref` with `name` matching the controller object exactly.
-2. In [`adpg/20-ingress.yaml`](adpg/20-ingress.yaml), **delete the whole `tls`
-   block**. Leaving it there pointing at a secret that does not exist is what
-   causes trouble; removing it is the supported path.
+   ```sh
+   kubectl -n adpg create secret tls adpg-test \
+     --cert=/path/to/test.adpg.local.crt \
+     --key=/path/to/test.adpg.local.key
+   ```
 
-This works because a HostRule carrying an `sslKeyCertificate` converts an
-insecure host FQDN into a secure one on its own -- the Ingress does not have to
-declare TLS. Verified end to end: with no Ingress `tls` section and no secret in
-the namespace, the HostRule reported `Accepted`, the Avi child virtual service
-kept its certificate attached, and the VIP still terminated TLS.
+2. In [`adpg/30-hostrule.yaml`](adpg/30-hostrule.yaml), change
+   `sslKeyCertificate.type` from `ref` to `secret`. The `name` stays the same --
+   it now refers to the Kubernetes secret rather than a controller object.
 
-The trade-off is that the certificate is no longer described by your manifests.
-Renewals happen on the controller, and Kubernetes has no visibility into what is
-actually being served -- including whether it still matches the hostname.
+3. In [`adpg/20-ingress.yaml`](adpg/20-ingress.yaml), add the `tls` block back
+   (the exact YAML is in a comment at the top of that file).
 
-> If you switch to `type: ref`, check the CN **and** SAN on the controller
-> object itself. A mismatch there is invisible from Kubernetes -- the HostRule
-> still reports `Accepted`, and the site still fails in every browser.
+Confirm what you loaded matches the hostname:
+
+```sh
+kubectl -n adpg get secret adpg-test -o jsonpath='{.data.tls\.crt}' \
+  | base64 -d | openssl x509 -noout -subject -ext subjectAltName
+```
+
+When both a HostRule certificate and an Ingress secret are present, **the
+HostRule wins**.
 
 ## Verify
 
@@ -219,9 +229,14 @@ kubectl -n adpg describe ingress adpg-nginx
 
 ```sh
 kubectl delete -f adpg/30-hostrule.yaml -f adpg/20-ingress.yaml -f adpg/10-app.yaml
-kubectl -n adpg delete secret adpg-test
 kubectl delete -f adpg/00-namespace.yaml
 ```
 
-Deleting the Ingress and HostRule removes the virtual service, pools and
-uploaded certificate from the Avi controller.
+Deleting the Ingress and HostRule removes the virtual service and pools from the
+Avi controller.
+
+The **certificate object is not removed**. AKO deletes only what it created, and
+with `sslKeyCertificate.type: ref` the certificate was imported by hand, so it
+stays on the controller for you to remove or reuse. (If you switched to
+`type: secret`, AKO uploaded the certificate and does clean it up -- and you
+should also `kubectl -n adpg delete secret adpg-test`.)
