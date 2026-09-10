@@ -7,6 +7,11 @@
 # If the HostRule in 30-hostrule.yaml specifies an sslKeyCertificate, that
 # takes precedence over this block. Keeping both is deliberate: TLS still
 # terminates correctly if the HostRule is rejected for any reason.
+#
+# USING A CERTIFICATE ALREADY IMPORTED ON THE CONTROLLER INSTEAD?
+# Delete this whole tls block. A HostRule carrying an sslKeyCertificate converts
+# an insecure host to a secure one on its own, so the Ingress needs no tls
+# section and no Kubernetes secret is required at all. See 30-hostrule.yaml.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

@@ -145,6 +145,27 @@ already exist on the Avi controller under exactly that name, imported manually.
 Use it when certificates are managed centrally rather than per-application. Full
 commentary and the exact YAML are in [`adpg/30-hostrule.yaml`](adpg/30-hostrule.yaml).
 
+### Referencing a controller certificate with no Kubernetes secret
+
+If the certificate is already imported on the Avi controller, you can reference
+it and skip the secret entirely -- step 2 of Deploy is then not needed at all.
+
+1. In [`adpg/30-hostrule.yaml`](adpg/30-hostrule.yaml), set the certificate to
+   `type: ref` with `name` matching the controller object exactly.
+2. In [`adpg/20-ingress.yaml`](adpg/20-ingress.yaml), **delete the whole `tls`
+   block**. Leaving it there pointing at a secret that does not exist is what
+   causes trouble; removing it is the supported path.
+
+This works because a HostRule carrying an `sslKeyCertificate` converts an
+insecure host FQDN into a secure one on its own -- the Ingress does not have to
+declare TLS. Verified end to end: with no Ingress `tls` section and no secret in
+the namespace, the HostRule reported `Accepted`, the Avi child virtual service
+kept its certificate attached, and the VIP still terminated TLS.
+
+The trade-off is that the certificate is no longer described by your manifests.
+Renewals happen on the controller, and Kubernetes has no visibility into what is
+actually being served -- including whether it still matches the hostname.
+
 > If you switch to `type: ref`, check the CN **and** SAN on the controller
 > object itself. A mismatch there is invisible from Kubernetes -- the HostRule
 > still reports `Accepted`, and the site still fails in every browser.

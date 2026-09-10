@@ -23,6 +23,13 @@
 #           name: adpg-test
 #         termination: edge
 #
+#   With type "ref" you do NOT need a Kubernetes secret at all, and the Ingress
+#   does not need a tls section: a HostRule carrying an sslKeyCertificate
+#   converts an insecure host to a secure one by itself. To go fully
+#   controller-managed, use the block above and delete the tls block from
+#   20-ingress.yaml. Verified against AKO: with no Ingress tls and no secret,
+#   the HostRule stays Accepted and the virtual service still terminates TLS.
+#
 #   Caution: with type "ref" the certificate served is whatever is in that
 #   controller object. Verify its CN and SAN match the fqdn below -- a mismatch
 #   there is not visible from Kubernetes and every browser will reject the site
