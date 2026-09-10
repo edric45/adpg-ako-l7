@@ -1,11 +1,63 @@
 # adpg-ako-l7
 
-A minimal, working example of exposing an application at **Layer 7** on a VMware
-Kubernetes Service (VKS) cluster using **NSX Advanced Load Balancer** through the
-**Avi Kubernetes Operator (AKO)**, with TLS terminated by a supplied certificate.
+A minimal, working example of exposing an application at **Layer 7** on a
+vSphere-hosted Kubernetes cluster -- a Tanzu Kubernetes Cluster (TKC) on vSphere
+8 with Tanzu, or a VKS cluster on VCF 9 -- using **NSX Advanced Load Balancer**
+through the **Avi Kubernetes Operator (AKO)**, with TLS terminated by a supplied
+certificate.
 
 Four manifests in [`adpg/`](adpg/): a namespace, an nginx application, an
 Ingress, and a HostRule. Hostname is `test.adpg.local` throughout.
+
+## Validated environments
+
+Verified against two independent stacks. The manifests are identical on both --
+nothing in `adpg/` is version-specific.
+
+**vSphere 8 with Tanzu (TKGS / TKC)** -- compatibility validated by the platform team:
+
+| Component | Version |
+|---|---|
+| vCenter Server | 8.0 U3 |
+| Tanzu Kubernetes Cluster (TKC) | 1.30 |
+| NSX Advanced Load Balancer (Avi Controller) | 22.1.5 |
+| AKO | 1.13.4 |
+| Networking | Supervisor + vSphere Distributed Switch (VDS) + Avi. No NSX, no VPC. |
+| IngressClass | `avi-lb` |
+
+**VKS / VCF 9** -- where this sample was built and exercised:
+
+| Component | Version |
+|---|---|
+| Kubernetes | 1.35 |
+| NSX Advanced Load Balancer (Avi Controller) | 32.1.1 |
+| AKO | 2.1.3 |
+| Networking | Supervisor + NSX, VPC mode enabled |
+| IngressClass | `avi-lb` |
+
+### Why the same manifests work on both
+
+The `HostRule` in this repo is `ako.vmware.com/v1beta1`. That is the **storage
+version** in AKO 1.13.4 as well as 2.x, so no API change is needed between them.
+(`v1alpha1` is still served on 1.13.4 for backward compatibility, but there is no
+reason to use it.) Every field the sample sets -- `fqdnType: Exact`,
+`enableVirtualHost`, `applicationProfile`, `tls.termination: edge`, and
+`sslKeyCertificate.type` accepting both `secret` and `ref` -- is present in the
+1.13.4 CRD schema.
+
+The two stacks also differ in networking -- VDS on one, NSX with VPC mode on the
+other. That difference lands entirely in the **AKO add-on configuration**, not in
+these manifests. A VDS-backed deployment uses a vCenter cloud on the Avi
+controller and needs neither `vpcMode` nor an NSX T1 router setting; an
+NSX-backed one does. Nothing in `adpg/` refers to the underlying network, so the
+same four files apply either way.
+
+On vSphere 8 with Tanzu, AKO is installed as a **cluster add-on** on the TKC
+rather than being present by default. It is not inherited from the Supervisor:
+the Supervisor's own AKO serves Supervisor-level Layer 4 only, and does not
+process Ingress objects belonging to a Tanzu Kubernetes Cluster. Install the
+add-on first, then confirm the `avi-lb` IngressClass exists before applying
+anything here.
 
 ## Prerequisites
 
