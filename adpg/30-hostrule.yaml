@@ -51,6 +51,7 @@ spec:
       sslKeyCertificate:
         type: ref
         name: adpg-test
+      sslProfile: System-Standard-PFS   
       termination: edge
     # Built-in Avi profile. AKO adds the :80 -> :443 redirect itself once the
     # host is secure.
